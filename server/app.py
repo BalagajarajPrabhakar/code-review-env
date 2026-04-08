@@ -16,7 +16,7 @@ app = create_app(
     max_concurrent_envs=1,
 )
 
-# ROOT ENDPOINT (CRITICAL)
+#  ROOT ENDPOINT (CRITICAL)
 @app.get("/")
 async def root():
     return {
@@ -28,7 +28,27 @@ async def root():
 async def health():
     return {"status": "healthy"}
 
-# MAIN FUNCTION (CRITICAL)
+# FIX: allow GET /reset (HF expects this)
+@app.get("/reset")
+async def reset_get():
+    env = CodeReviewEnvironment()
+    obs = env.reset()
+    return obs.model_dump()
+
+from fastapi import Body
+
+#  Custom simple step endpoint
+@app.post("/step-simple")
+async def step_simple(payload: dict = Body(...)):
+    env = CodeReviewEnvironment()
+    env.reset()
+
+    action = CodeReviewAction(response=payload.get("message", ""))
+    obs = env.step(action)
+
+    return obs.model_dump()
+
+#  MAIN FUNCTION (CRITICAL)
 def main():
     import uvicorn
     port = int(os.environ.get("PORT", 7860))
