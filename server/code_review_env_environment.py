@@ -1,4 +1,4 @@
-﻿import random
+import random
 from openenv.core.env_server.interfaces import Environment
 from openenv.core.env_server.types import State
 from uuid import uuid4
@@ -88,8 +88,13 @@ class CodeReviewEnvironment(Environment):
             code=self.current["code"],
             task=self.current["task"],
             done=False,
-            reward=0.0,
-        )
+            reward=0.1,  # NOT 0 (important)
+            metadata={
+            "has_grader": True,
+            "grader_name": self.current["grader"].__name__,
+            "total_tasks": len(self.tasks)
+    }
+)
 
     def step(self, action: CodeReviewAction):
 
@@ -107,10 +112,11 @@ class CodeReviewEnvironment(Environment):
             done=done,
             reward=reward,
             metadata={
-                "step": self._state.step_count,
-                "grading": "function_based",
-                "score_range": "(0,1)"
-            }
+    "step": self._state.step_count,
+    "grader_used": self.current["grader"].__name__,
+    "has_grader": True,
+    "score_range": "(0,1)"
+}
         )
 
     @property
