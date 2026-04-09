@@ -1,4 +1,4 @@
-import random
+﻿import random
 from openenv.core.env_server.interfaces import Environment
 from openenv.core.env_server.types import State
 from uuid import uuid4
@@ -25,6 +25,30 @@ def simple_grader(response: str, expected_keywords: list, explanation_keywords: 
     score = max(0.1, min(score, 0.9))
 
     return score
+
+def grader_syntax(response: str) -> float:
+    return simple_grader(
+        response,
+        expected_keywords=["colon", ":"],
+        explanation_keywords=["because", "syntax"]
+    )
+
+
+def grader_logic(response: str) -> float:
+    return simple_grader(
+        response,
+        expected_keywords=["== 0", "even"],
+        explanation_keywords=["because", "logic"]
+    )
+
+
+def grader_performance(response: str) -> float:
+    return simple_grader(
+        response,
+        expected_keywords=["for x in arr"],
+        explanation_keywords=["efficient", "performance"]
+    )
+    
 class CodeReviewEnvironment(Environment):
 
     def __init__(self):
@@ -35,29 +59,17 @@ class CodeReviewEnvironment(Environment):
     {
         "task": "Identify syntax error and fix it.",
         "code": "def add(a,b)\n return a+b",
-        "grader_fn": lambda response: simple_grader(
-            response,
-            expected_keywords=["colon", ":"],
-            explanation_keywords=["because", "syntax"]
-        )
+        "grader": grader_syntax
     },
     {
         "task": "Fix logical error.",
         "code": "def is_even(n): return n % 2 == 1",
-        "grader_fn": lambda response: simple_grader(
-            response,
-            expected_keywords=["== 0", "even"],
-            explanation_keywords=["because", "logic"]
-        )
+        "grader": grader_logic
     },
     {
         "task": "Optimize performance.",
         "code": "for i in range(len(arr)): print(arr[i])",
-        "grader_fn": lambda response: simple_grader(
-            response,
-            expected_keywords=["for x in arr"],
-            explanation_keywords=["efficient", "performance"]
-        )
+        "grader": grader_performance
     }
 ]
 
@@ -87,7 +99,7 @@ class CodeReviewEnvironment(Environment):
         response = action.response
 
         #  REAL GRADER
-        reward = self.current["grader_fn"](response)
+        reward = self.current["grader"](response)
 
         return CodeReviewObservation(
             code="Completed" if done else self.current["code"],
