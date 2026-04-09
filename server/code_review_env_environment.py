@@ -5,6 +5,10 @@ from uuid import uuid4
 
 from models import CodeReviewAction, CodeReviewObservation
 
+
+# =========================
+# COMMON GRADER FUNCTION
+# =========================
 def simple_grader(response: str, expected_keywords: list, explanation_keywords: list):
     response = response.lower()
     score = 0.0
@@ -26,6 +30,10 @@ def simple_grader(response: str, expected_keywords: list, explanation_keywords: 
 
     return score
 
+
+# =========================
+# INDIVIDUAL GRADERS
+# =========================
 def grader_syntax(response: str) -> float:
     return simple_grader(
         response,
@@ -48,39 +56,50 @@ def grader_performance(response: str) -> float:
         expected_keywords=["for x in arr"],
         explanation_keywords=["efficient", "performance"]
     )
-    
+
+
+# =========================
+# ENVIRONMENT CLASS
+# =========================
 class CodeReviewEnvironment(Environment):
 
     def __init__(self):
         self.max_steps = 3
         self._state = State(episode_id=str(uuid4()), step_count=0)
 
+        #  IMPORTANT: Explicit grader_name added
         self.tasks = [
-    {
-        "task": "Identify syntax error and fix it.",
-        "code": "def add(a,b)\n return a+b",
-        "grader": grader_syntax
-    },
-    {
-        "task": "Fix logical error.",
-        "code": "def is_even(n): return n % 2 == 1",
-        "grader": grader_logic
-    },
-    {
-        "task": "Optimize performance.",
-        "code": "for i in range(len(arr)): print(arr[i])",
-        "grader": grader_performance
-    }
-]
+            {
+                "task": "Identify syntax error and fix it.",
+                "code": "def add(a,b)\n return a+b",
+                "grader": grader_syntax,
+                "grader_name": "syntax_grader"
+            },
+            {
+                "task": "Fix logical error.",
+                "code": "def is_even(n): return n % 2 == 1",
+                "grader": grader_logic,
+                "grader_name": "logic_grader"
+            },
+            {
+                "task": "Optimize performance.",
+                "code": "for i in range(len(arr)): print(arr[i])",
+                "grader": grader_performance,
+                "grader_name": "performance_grader"
+            }
+        ]
 
         self.current = None
         self._reset_count = 0
 
+    # =========================
+    # RESET
+    # =========================
     def reset(self):
-        # Reset state
+
         self._state = State(episode_id=str(uuid4()), step_count=0)
 
-        # Deterministic task selection
+        # deterministic rotation
         self.current = self.tasks[self._reset_count % len(self.tasks)]
         self._reset_count += 1
 
@@ -88,14 +107,17 @@ class CodeReviewEnvironment(Environment):
             code=self.current["code"],
             task=self.current["task"],
             done=False,
-            reward=0.1,  # NOT 0 (important)
+            reward=0.1,  #  MUST NOT BE 0
             metadata={
-            "has_grader": True,
-            "grader_name": self.current["grader"].__name__,
-            "total_tasks": len(self.tasks)
-    }
-)
+                "has_grader": True,
+                "grader_name": self.current["grader_name"],
+                "total_tasks": len(self.tasks)
+            }
+        )
 
+    # =========================
+    # STEP
+    # =========================
     def step(self, action: CodeReviewAction):
 
         self._state.step_count += 1
@@ -103,7 +125,7 @@ class CodeReviewEnvironment(Environment):
 
         response = action.response
 
-        #  REAL GRADER
+        #  USE FUNCTION GRADER
         reward = self.current["grader"](response)
 
         return CodeReviewObservation(
@@ -112,11 +134,12 @@ class CodeReviewEnvironment(Environment):
             done=done,
             reward=reward,
             metadata={
-    "step": self._state.step_count,
-    "grader_used": self.current["grader"].__name__,
-    "has_grader": True,
-    "score_range": "(0,1)"
-}
+                "step": self._state.step_count,
+                "grader_name": self.current["grader_name"],  #  IMPORTANT
+                "has_grader": True,
+                "total_tasks": len(self.tasks),
+                "score_range": "(0,1)"
+            }
         )
 
     @property
