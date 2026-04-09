@@ -5,7 +5,26 @@ from uuid import uuid4
 
 from models import CodeReviewAction, CodeReviewObservation
 
+def simple_grader(response: str, expected_keywords: list, explanation_keywords: list):
+    response = response.lower()
+    score = 0.0
 
+    # keyword match
+    if any(word in response for word in expected_keywords):
+        score += 0.5
+
+    # explanation match
+    if any(word in response for word in explanation_keywords):
+        score += 0.3
+
+    # bonus
+    if len(response) > 30:
+        score += 0.1
+
+    # clamp STRICT (0,1)
+    score = max(0.1, min(score, 0.9))
+
+    return score
 class CodeReviewEnvironment(Environment):
 
     def __init__(self):
@@ -16,26 +35,29 @@ class CodeReviewEnvironment(Environment):
     {
         "task": "Identify syntax error and fix it.",
         "code": "def add(a,b)\n return a+b",
-        "grader": {
-            "must_include": ["colon", ":"],
-            "explanation": ["because", "syntax"]
-        }
+        "grader_fn": lambda response: simple_grader(
+            response,
+            expected_keywords=["colon", ":"],
+            explanation_keywords=["because", "syntax"]
+        )
     },
     {
         "task": "Fix logical error.",
         "code": "def is_even(n): return n % 2 == 1",
-        "grader": {
-            "must_include": ["== 0", "even"],
-            "explanation": ["because", "logic"]
-        }
+        "grader_fn": lambda response: simple_grader(
+            response,
+            expected_keywords=["== 0", "even"],
+            explanation_keywords=["because", "logic"]
+        )
     },
     {
         "task": "Optimize performance.",
         "code": "for i in range(len(arr)): print(arr[i])",
-        "grader": {
-            "must_include": ["for x in arr"],
-            "explanation": ["efficient", "performance"]
-        }
+        "grader_fn": lambda response: simple_grader(
+            response,
+            expected_keywords=["for x in arr"],
+            explanation_keywords=["efficient", "performance"]
+        )
     }
 ]
 
@@ -62,42 +84,10 @@ class CodeReviewEnvironment(Environment):
         self._state.step_count += 1
         done = self._state.step_count >= self.max_steps
 
-        response = action.response.lower()
-        grader = self.current["grader"]
+        response = action.response
 
-        reward = 0.0
-
-        #  Keyword match
-        matched_keywords = [
-            word for word in grader["must_include"]
-            if word.lower() in response
-        ]
-
-        if matched_keywords:
-            reward += 0.5
-
-        #  Explanation match
-        matched_explanations = [
-            word for word in grader["explanation"]
-            if word.lower() in response
-        ]
-
-        if matched_explanations:
-            reward += 0.3
-
-        #  Bonus
-        if len(response) > 30:
-            reward += 0.1
-
-        #  Penalty
-        if len(response) < 10:
-            reward -= 0.2
-
-        if "i don't know" in response:
-            reward -= 0.3
-
-        #  CRITICAL (Hackathon Rule)
-        reward = max(0.1, min(reward, 0.9))
+        #  REAL GRADER
+        reward = self.current["grader_fn"](response)
 
         return CodeReviewObservation(
             code="Completed" if done else self.current["code"],
@@ -105,12 +95,11 @@ class CodeReviewEnvironment(Environment):
             done=done,
             reward=reward,
             metadata={
-                "matched_keywords": matched_keywords,
-                "matched_explanations": matched_explanations,
                 "step": self._state.step_count,
+                "grading": "function_based",
                 "score_range": "(0,1)"
-        }
-    )
+            }
+        )
 
     @property
     def state(self):
