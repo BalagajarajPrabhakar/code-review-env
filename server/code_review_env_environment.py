@@ -1,4 +1,4 @@
-﻿import random
+import random
 from openenv.core.env_server.interfaces import Environment
 from openenv.core.env_server.types import State
 from uuid import uuid4
@@ -13,25 +13,28 @@ class CodeReviewEnvironment(Environment):
         self._state = State(episode_id=str(uuid4()), step_count=0)
 
         self.tasks = [
-            {
-                "task": "You are reviewing a junior developer's pull request. Identify the syntax error and suggest a fix.",
-                "code": "def add(a,b)\n return a+b",
-                "bug": "missing colon",
-                "fix": ":"
-            },
-            {
-                "task": "You are performing a backend code review. Identify the logical error and correct it.",
-                "code": "def is_even(n): return n % 2 == 1",
-                "bug": "wrong condition",
-                "fix": "== 0"
-            },
-            {
-                "task": "You are optimizing production code. Improve performance and suggest better implementation.",
-                "code": "for i in range(len(arr)): print(arr[i])",
-                "bug": "inefficient",
-                "fix": "for x in arr"
-            }
-        ]
+    {
+        "id": 1,
+        "task": "You are reviewing a junior developer's pull request. Identify the syntax error and suggest a fix.",
+        "code": "def add(a,b)\n return a+b",
+        "bug": "missing colon",
+        "fix": ":"
+    },
+    {
+        "id": 2,
+        "task": "You are performing a backend code review. Identify the logical error and correct it.",
+        "code": "def is_even(n): return n % 2 == 1",
+        "bug": "wrong condition",
+        "fix": "== 0"
+    },
+    {
+        "id": 3,
+        "task": "You are optimizing production code. Improve performance and suggest better implementation.",
+        "code": "for i in range(len(arr)): print(arr[i])",
+        "bug": "inefficient",
+        "fix": "for x in arr"
+    }
+]
 
         self.current = None
         self._reset_count = 0
@@ -65,26 +68,31 @@ class CodeReviewEnvironment(Environment):
 
         #  Bug detection
         if any(word in response for word in self.current["bug"].split()):
-            reward += 0.4
+            reward += 0.3
 
         #  Fix detection
-        if self.current["fix"] in response:
-            reward += 0.4
+        if any(word in response for word in self.current["fix"].split()):
+            reward += 0.3
 
-        #  Explanation bonus
+        #  Explanation
         if "because" in response or "reason" in response:
             reward += 0.2
 
-        reward = min(reward, 1.0)
+        #  Understanding
+        if "error" in response or "issue" in response:
+            reward += 0.1
 
-        #  Penalties
-        if len(response) < 10:
-            reward -= 0.2
+        #  Quality bonus
+        if len(response) > 30:
+            reward += 0.1
 
-        if "i don't know" in response:
-            reward -= 0.5
 
-        reward = max(0.0, reward)
+        #  VERY IMPORTANT (Phase 2 fix)
+        if reward <= 0:
+            reward = 0.1   #  avoid 0
+
+        elif reward >= 1:
+            reward = 0.9   #  avoid 1
 
         #  Success condition
         if reward >= 0.8:
@@ -100,14 +108,13 @@ class CodeReviewEnvironment(Environment):
             done=done,
             reward=reward,
             metadata={
-                "bug_detected": self.current["bug"] in response,
-                "fix_suggested": self.current["fix"] in response,
-                "step": self._state.step_count
-            }
+    "task_id": self.current["id"],
+    "bug_detected": self.current["bug"] in response,
+    "fix_suggested": self.current["fix"] in response,
+    "step": self._state.step_count
+}
         )
 
     @property
     def state(self):
         return self._state
-
-
