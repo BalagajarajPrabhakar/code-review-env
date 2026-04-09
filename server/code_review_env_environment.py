@@ -14,25 +14,28 @@ class CodeReviewEnvironment(Environment):
 
         self.tasks = [
     {
-        "id": 1,
-        "task": "You are reviewing a junior developer's pull request. Identify the syntax error and suggest a fix.",
+        "task": "Identify syntax error and fix it.",
         "code": "def add(a,b)\n return a+b",
-        "bug": "missing colon",
-        "fix": ":"
+        "grader": {
+            "must_include": ["colon", ":"],
+            "explanation": ["because", "syntax"]
+        }
     },
     {
-        "id": 2,
-        "task": "You are performing a backend code review. Identify the logical error and correct it.",
+        "task": "Fix logical error.",
         "code": "def is_even(n): return n % 2 == 1",
-        "bug": "wrong condition",
-        "fix": "== 0"
+        "grader": {
+            "must_include": ["== 0", "even"],
+            "explanation": ["because", "logic"]
+        }
     },
     {
-        "id": 3,
-        "task": "You are optimizing production code. Improve performance and suggest better implementation.",
+        "task": "Optimize performance.",
         "code": "for i in range(len(arr)): print(arr[i])",
-        "bug": "inefficient",
-        "fix": "for x in arr"
+        "grader": {
+            "must_include": ["for x in arr"],
+            "explanation": ["efficient", "performance"]
+        }
     }
 ]
 
@@ -55,52 +58,46 @@ class CodeReviewEnvironment(Environment):
         )
 
     def step(self, action: CodeReviewAction):
-        # Step count
+
         self._state.step_count += 1
+        done = self._state.step_count >= self.max_steps
 
-        # Initialize done
-        done = False
-
-        # Get agent response
         response = action.response.lower()
+        grader = self.current["grader"]
 
         reward = 0.0
 
-        #  Bug detection
-        if any(word in response for word in self.current["bug"].split()):
+        #  Keyword match
+        matched_keywords = [
+            word for word in grader["must_include"]
+            if word.lower() in response
+        ]
+
+        if matched_keywords:
+            reward += 0.5
+
+        #  Explanation match
+        matched_explanations = [
+            word for word in grader["explanation"]
+            if word.lower() in response
+        ]
+
+        if matched_explanations:
             reward += 0.3
 
-        #  Fix detection
-        if any(word in response for word in self.current["fix"].split()):
-            reward += 0.3
-
-        #  Explanation
-        if "because" in response or "reason" in response:
-            reward += 0.2
-
-        #  Understanding
-        if "error" in response or "issue" in response:
-            reward += 0.1
-
-        #  Quality bonus
+        #  Bonus
         if len(response) > 30:
             reward += 0.1
 
+        #  Penalty
+        if len(response) < 10:
+            reward -= 0.2
 
-        #  VERY IMPORTANT (Phase 2 fix)
-        if reward <= 0:
-            reward = 0.1   #  avoid 0
+        if "i don't know" in response:
+            reward -= 0.3
 
-        elif reward >= 1:
-            reward = 0.9   #  avoid 1
-
-        #  Success condition
-        if reward >= 0.8:
-            done = True
-
-        #  Max step condition
-        if self._state.step_count >= self.max_steps:
-            done = True
+        #  CRITICAL (Hackathon Rule)
+        reward = max(0.1, min(reward, 0.9))
 
         return CodeReviewObservation(
             code="Completed" if done else self.current["code"],
@@ -108,12 +105,12 @@ class CodeReviewEnvironment(Environment):
             done=done,
             reward=reward,
             metadata={
-    "task_id": self.current["id"],
-    "bug_detected": self.current["bug"] in response,
-    "fix_suggested": self.current["fix"] in response,
-    "step": self._state.step_count
-}
-        )
+                "matched_keywords": matched_keywords,
+                "matched_explanations": matched_explanations,
+                "step": self._state.step_count,
+                "score_range": "(0,1)"
+        }
+    )
 
     @property
     def state(self):
