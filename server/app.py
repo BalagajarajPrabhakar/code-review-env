@@ -38,15 +38,28 @@ async def reset_get():
 from fastapi import Body
 
 #  Custom simple step endpoint
+from fastapi import Request
+
 @app.post("/step-simple")
-async def step_simple(payload: dict = Body(...)):
-    env = CodeReviewEnvironment()
-    env.reset()
+async def step_simple(request: Request):
+    payload = await request.json()
 
-    action = CodeReviewAction(response=payload.get("message", ""))
-    obs = env.step(action)
+    # extract response properly
+    user_response = payload.get("response", "")
 
-    return obs.model_dump()
+    # create action
+    action = CodeReviewAction(response=user_response)
+
+    # call environment step
+    result = app.state.env.step(action)
+
+    return {
+        "done": result.done,
+        "reward": result.reward,
+        "metadata": result.metadata,
+        "code": result.code,
+        "task": result.task
+    }
 
 #  MAIN FUNCTION (CRITICAL)
 def main():
