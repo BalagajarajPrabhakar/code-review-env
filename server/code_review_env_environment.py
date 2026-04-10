@@ -1,15 +1,20 @@
+# server/code_review_env_environment.py
 from uuid import uuid4
 
 from openenv.core.env_server.interfaces import Environment
 from openenv.core.env_server.types import State
 
 from models import CodeReviewAction, CodeReviewObservation
-from .tasks import TASKS   # ← This must work now
 
+# Direct import - avoid relative import issues during validation
+try:
+    from .tasks import TASKS
+except ImportError:
+    # Fallback for validator
+    from tasks import TASKS
 
 class CodeReviewEnvironment(Environment):
-    # ← Phase 2 validator looks for this exact class attribute
-    tasks = TASKS
+    tasks = TASKS   # ← This line is critical for Phase 2
 
     def __init__(self):
         self.max_steps = 3
@@ -30,7 +35,7 @@ class CodeReviewEnvironment(Environment):
             reward=0.1,
             metadata={
                 "task_name": self.current["name"],
-                "difficulty": self.current["difficulty"],
+                "difficulty": self.current.get("difficulty", "medium"),
                 "grader_name": f"{self.current['name']}_grader",
                 "has_grader": True,
                 "total_tasks": len(self.tasks)
@@ -40,7 +45,6 @@ class CodeReviewEnvironment(Environment):
     def step(self, action: CodeReviewAction):
         self._state.step_count += 1
         done = self._state.step_count >= self.max_steps
-
         reward = self.current["grader"](action.response)
 
         return CodeReviewObservation(
