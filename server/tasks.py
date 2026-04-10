@@ -1,4 +1,4 @@
-# tasks.py
+# server/tasks.py
 from .graders import grader_syntax, grader_logic, grader_performance
 
 TASKS = [
