@@ -5,11 +5,11 @@ from openenv.core.env_server.interfaces import Environment
 from openenv.core.env_server.types import State
 
 from models import CodeReviewAction, CodeReviewObservation
-from .tasks import TASKS   # ← new import
+from .tasks import TASKS   # ← correct relative import
 
 
 class CodeReviewEnvironment(Environment):
-    # ← This class attribute is what Phase 2 validator looks for
+    # This class attribute is required by Phase 2 validator
     tasks = TASKS
 
     def __init__(self):
@@ -28,10 +28,10 @@ class CodeReviewEnvironment(Environment):
             task=self.current["task"],
             code=self.current["code"],
             done=False,
-            reward=0.0,          # initial reward can be 0.0
+            reward=0.1,   # small positive initial reward
             metadata={
                 "task_name": self.current["name"],
-                "difficulty": self.current["difficulty"],
+                "difficulty": self.current.get("difficulty", "medium"),
                 "grader_name": f"{self.current['name']}_grader",
                 "has_grader": True,
                 "total_tasks": len(self.tasks)
@@ -42,7 +42,7 @@ class CodeReviewEnvironment(Environment):
         self._state.step_count += 1
         done = self._state.step_count >= self.max_steps
 
-        # Use the grader attached to the current task
+        # Call the grader attached to current task
         reward = self.current["grader"](action.response)
 
         return CodeReviewObservation(
