@@ -1,144 +1,61 @@
 import random
-from openenv.core.env_server.interfaces import Environment
-from openenv.core.env_server.types import State
 from uuid import uuid4
 
+from openenv.core.env_server.interfaces import Environment
+from openenv.core.env_server.types import State
+
 from models import CodeReviewAction, CodeReviewObservation
+from ..tasks import TASKS   # ← new import
 
 
-# =========================
-# COMMON GRADER FUNCTION
-# =========================
-def simple_grader(response: str, expected_keywords: list, explanation_keywords: list):
-    response = response.lower()
-    score = 0.0
-
-    # keyword match
-    if any(word in response for word in expected_keywords):
-        score += 0.5
-
-    # explanation match
-    if any(word in response for word in explanation_keywords):
-        score += 0.3
-
-    # bonus
-    if len(response) > 30:
-        score += 0.1
-
-    # clamp STRICT (0,1)
-    score = max(0.1, min(score, 0.9))
-
-    return score
-
-
-# =========================
-# INDIVIDUAL GRADERS
-# =========================
-def grader_syntax(response: str) -> float:
-    return simple_grader(
-        response,
-        expected_keywords=["colon", ":"],
-        explanation_keywords=["because", "syntax"]
-    )
-
-
-def grader_logic(response: str) -> float:
-    return simple_grader(
-        response,
-        expected_keywords=["== 0", "even"],
-        explanation_keywords=["because", "logic"]
-    )
-
-
-def grader_performance(response: str) -> float:
-    return simple_grader(
-        response,
-        expected_keywords=["for x in arr"],
-        explanation_keywords=["efficient", "performance"]
-    )
-
-
-# =========================
-# ENVIRONMENT CLASS
-# =========================
 class CodeReviewEnvironment(Environment):
+    # ← This class attribute is what Phase 2 validator looks for
+    tasks = TASKS
 
     def __init__(self):
         self.max_steps = 3
-        self._state = State(episode_id=str(uuid4()), step_count=0)
-
-        #  IMPORTANT: Explicit grader_name added
-        self.tasks = [
-            {
-                "task": "Identify syntax error and fix it.",
-                "code": "def add(a,b)\n return a+b",
-                "grader": grader_syntax,
-                "grader_name": "syntax_grader"
-            },
-            {
-                "task": "Fix logical error.",
-                "code": "def is_even(n): return n % 2 == 1",
-                "grader": grader_logic,
-                "grader_name": "logic_grader"
-            },
-            {
-                "task": "Optimize performance.",
-                "code": "for i in range(len(arr)): print(arr[i])",
-                "grader": grader_performance,
-                "grader_name": "performance_grader"
-            }
-        ]
-
-        self.current = None
         self._reset_count = 0
-
-    # =========================
-    # RESET
-    # =========================
-    def reset(self):
-
+        self.current = None
         self._state = State(episode_id=str(uuid4()), step_count=0)
 
-        # deterministic rotation
-        self.current = self.tasks[self._reset_count % len(self.tasks)]
+    def reset(self):
+        self._state = State(episode_id=str(uuid4()), step_count=0)
+        idx = self._reset_count % len(self.tasks)
+        self.current = self.tasks[idx]
         self._reset_count += 1
 
         return CodeReviewObservation(
-            code=self.current["code"],
             task=self.current["task"],
+            code=self.current["code"],
             done=False,
-            reward=0.1,  #  MUST NOT BE 0
+            reward=0.0,          # initial reward can be 0.0
             metadata={
+                "task_name": self.current["name"],
+                "difficulty": self.current["difficulty"],
+                "grader_name": f"{self.current['name']}_grader",
                 "has_grader": True,
-                "grader_name": self.current["grader_name"],
                 "total_tasks": len(self.tasks)
             }
         )
 
-    # =========================
-    # STEP
-    # =========================
     def step(self, action: CodeReviewAction):
-
         self._state.step_count += 1
         done = self._state.step_count >= self.max_steps
 
-        response = action.response
-
-        #  USE FUNCTION GRADER
-        reward = self.current["grader"](response)
+        # Use the grader attached to the current task
+        reward = self.current["grader"](action.response)
 
         return CodeReviewObservation(
-            code="Completed" if done else self.current["code"],
             task=self.current["task"],
+            code="Task completed" if done else self.current["code"],
             done=done,
             reward=reward,
             metadata={
                 "step": self._state.step_count,
-                "grader_name": self.current["grader_name"],  #  IMPORTANT
+                "task_name": self.current["name"],
+                "grader_name": f"{self.current['name']}_grader",
                 "has_grader": True,
-                "total_tasks": len(self.tasks),
-                "score_range": "(0,1)"
+                "total_tasks": len(self.tasks)
             }
         )
 
