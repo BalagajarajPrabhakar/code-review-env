@@ -4,3 +4,16 @@ type: space
 runtime: fastapi
 app: server.app:app
 port: 8000
+tasks:
+  - name: syntax
+    description: "Identify and fix a syntax error in a Python function."
+    difficulty: easy
+    has_grader: true
+  - name: logic
+    description: "Identify and fix a logical error in a Python function."
+    difficulty: medium
+    has_grader: true
+  - name: performance
+    description: "Optimize inefficient Python code for better performance."
+    difficulty: hard
+    has_grader: true
