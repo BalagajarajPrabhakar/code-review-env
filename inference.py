@@ -1,7 +1,12 @@
 """
-inference.py - Code Review Environment Baseline
-Runs all 3 tasks (syntax, logic, performance) separately.
-Emits strict [START] / [STEP] / [END] log format required by the validator.
+inference.py — Code Review Environment Baseline
+================================================
+Runs all 5 tasks against the configured LLM and emits strict
+[START] / [STEP] / [END] logs required by the OpenEnv validator.
+Environment variables (all required at runtime):
+  HF_TOKEN      / API_KEY   — API key
+  API_BASE_URL              — LLM endpoint  (default: HF router)
+  MODEL_NAME                — model id      (default: Qwen2.5-72B-Instruct)
 """
 
 import asyncio
@@ -9,35 +14,40 @@ import os
 from typing import List
 
 from openai import OpenAI
-from server.code_review_env_environment import CodeReviewEnvironment
+
+from server.code_review_env_environment import CodeReviewEnvironment, TASKS
 from models import CodeReviewAction
 
-# ── ENV VARIABLES (MANDATORY) ──────────────────────────────────────────────────
+# ── ENV VARIABLES ──────────────────────────────────────────────────────────────
 API_KEY = os.getenv("HF_TOKEN") or os.getenv("API_KEY")
 API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
 MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
 
-# ── CONFIG ──────────────────────────────────────────────────────────────────────
 BENCHMARK = "code_review_env"
 MAX_STEPS = 3
-SUCCESS_THRESHOLD = 0.7
+SUCCESS_THRESHOLD = 0.70
 
-# Task names must match the `name` field in openenv.yaml tasks
-TASKS = ["syntax", "logic", "performance"]
+SYSTEM_PROMPT = (
+    "You are a senior software engineer conducting a pull-request code review. "
+    "For every snippet you receive:\n"
+    "  1. Identify the specific bug, error, or issue.\n"
+    "  2. Explain clearly why it is wrong.\n"
+    "  3. Provide the corrected / improved code.\n"
+    "Be concise but precise. Do not add unnecessary preamble."
+)
 
 
-# ── LOGGING (STRICT FORMAT — DO NOT CHANGE) ────────────────────────────────────
+# ── STRICT LOG FORMAT ──────────────────────────────────────────────────────────
 def log_start(task: str, env: str, model: str) -> None:
     print(f"[START] task={task} env={env} model={model}", flush=True)
 
 
 def log_step(step: int, action: str, reward: float, done: bool, error) -> None:
-    error_val = error if error else "null"
-    done_val = str(done).lower()
-    # Sanitise action: strip newlines so the log stays on one line
     action_clean = action.replace("\n", " ").replace("\r", "")[:120]
+    error_val = error if error else "null"
     print(
-        f"[STEP] step={step} action={action_clean} reward={reward:.2f} done={done_val} error={error_val}",
+        f"[STEP] step={step} action={action_clean} "
+        f"reward={reward:.2f} done={str(done).lower()} error={error_val}",
         flush=True,
     )
 
@@ -45,49 +55,46 @@ def log_step(step: int, action: str, reward: float, done: bool, error) -> None:
 def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> None:
     rewards_str = ",".join(f"{r:.2f}" for r in rewards)
     print(
-        f"[END] success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}",
+        f"[END] success={str(success).lower()} steps={steps} "
+        f"score={score:.3f} rewards={rewards_str}",
         flush=True,
     )
 
 
-# ── LLM CALL ────────────────────────────────────────────────────────────────────
-def get_model_response(client: OpenAI, task_desc: str, code: str) -> str:
-    prompt = (
-        "You are a senior software engineer reviewing a pull request.\n\n"
-        f"Task: {task_desc}\n\nCode:\n{code}\n\n"
-        "Instructions:\n"
-        "1. Identify the bug or issue\n"
-        "2. Explain why it is wrong\n"
-        "3. Provide the correct fix with code\n"
-    )
+# ── LLM CALL ──────────────────────────────────────────────────────────────────
+def call_model(client: OpenAI, task_desc: str, code: str) -> str:
+    user_prompt = f"Task: {task_desc}\n\nCode to review:\n```python\n{code}\n```"
     try:
         response = client.chat.completions.create(
             model=MODEL_NAME,
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=300,
-            temperature=0.7,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": user_prompt},
+            ],
+            max_tokens=400,
+            temperature=0.3,   # lower temp → more deterministic / reproducible
         )
         return response.choices[0].message.content.strip()
-    except Exception as e:
-        print(f"[DEBUG] Model request failed: {e}", flush=True)
-        return "There is a bug in the code. Fix it."
+    except Exception as exc:
+        print(f"[DEBUG] LLM call failed: {exc}", flush=True)
+        # Deterministic fallback so scoring always produces a value
+        return f"There is an issue in the code. Please review and fix it. Error details: {str(exc)[:80]}"
 
 
-# ── RUN ONE TASK ────────────────────────────────────────────────────────────────
-def run_task(client: OpenAI, env: CodeReviewEnvironment, task_index: int, task_name: str):
-    """Run a single task episode and emit START / STEP / END logs."""
+# ── SINGLE TASK EPISODE ────────────────────────────────────────────────────────
+def run_task(client: OpenAI, env: CodeReviewEnvironment, task_index: int) -> float:
+    task_name = TASKS[task_index]["name"]
     log_start(task_name, BENCHMARK, MODEL_NAME)
+
+    # Point the env at the correct task
+    env._reset_count = task_index
+    obs = env.reset()
 
     rewards: List[float] = []
     steps_taken = 0
 
-    # Force the environment to load the correct task by resetting to the right index
-    # We call reset() and skip ahead to the desired task
-    env._reset_count = task_index
-    obs = env.reset()
-
     for step in range(1, MAX_STEPS + 1):
-        action_text = get_model_response(client, obs.task, obs.code)
+        action_text = call_model(client, obs.task, obs.code)
         result = env.step(CodeReviewAction(response=action_text))
 
         obs = result
@@ -96,32 +103,40 @@ def run_task(client: OpenAI, env: CodeReviewEnvironment, task_index: int, task_n
 
         rewards.append(reward)
         steps_taken = step
-
         log_step(step, action_text, reward, done, None)
 
         if done:
             break
 
     score = sum(rewards) / len(rewards) if rewards else 0.0
-    score = max(0.0, min(score, 1.0))
+    score = round(max(0.0, min(score, 1.0)), 3)
     success = score >= SUCCESS_THRESHOLD
 
     log_end(success, steps_taken, score, rewards)
     return score
 
 
-# ── MAIN ────────────────────────────────────────────────────────────────────────
+# ── MAIN ───────────────────────────────────────────────────────────────────────
 async def main():
     client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
     env = CodeReviewEnvironment()
 
-    all_scores = []
-    for i, task_name in enumerate(TASKS):
-        score = run_task(client, env, i, task_name)
+    all_scores: List[float] = []
+    for i in range(len(TASKS)):
+        score = run_task(client, env, i)
         all_scores.append(score)
 
     avg = sum(all_scores) / len(all_scores)
-    print(f"\n[SUMMARY] tasks={len(TASKS)} avg_score={avg:.3f} scores={','.join(f'{s:.3f}' for s in all_scores)}", flush=True)
+    difficulties = [t["difficulty"] for t in TASKS]
+    names = [t["name"] for t in TASKS]
+
+    print(
+        f"\n[SUMMARY] tasks={len(TASKS)} avg_score={avg:.3f} "
+        f"scores={','.join(f'{s:.3f}' for s in all_scores)} "
+        f"tasks={','.join(names)} "
+        f"difficulties={','.join(difficulties)}",
+        flush=True,
+    )
 
 
 if __name__ == "__main__":
