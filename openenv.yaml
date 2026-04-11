@@ -5,15 +5,23 @@ runtime: fastapi
 app: server.app:app
 port: 8000
 tasks:
-  - name: syntax
-    description: "Identify and fix a syntax error in a Python function."
+  - name: syntax_error
+    description: "Identify and fix a Python syntax error (missing colon). Easy — tests basic code reading."
     difficulty: easy
     has_grader: true
-  - name: logic
-    description: "Identify and fix a logical error in a Python function."
+  - name: logic_error
+    description: "Identify and fix a logical error (wrong comparison operator). Medium — requires semantic understanding."
+    difficulty: medium
+    has_grader: true
+  - name: security_issue
+    description: "Spot SQL injection and hardcoded credentials. Medium — requires security domain knowledge."
     difficulty: medium
     has_grader: true
   - name: performance
-    description: "Optimize inefficient Python code for better performance."
+    description: "Optimise an O(n²) duplicate-check to O(n) using a set. Hard — requires algorithmic thinking."
+    difficulty: hard
+    has_grader: true
+  - name: code_smell
+    description: "Refactor a god-function violating Single Responsibility Principle. Hard — requires design knowledge."
     difficulty: hard
     has_grader: true
