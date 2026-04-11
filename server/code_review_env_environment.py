@@ -8,30 +8,40 @@ from models import CodeReviewAction, CodeReviewObservation
 
 
 class CodeReviewEnvironment(Environment):
-    
-    # Tasks defined directly as class attribute - this is what validator looks for
+
+    # Tasks defined as class attribute — validator uses this list
     tasks = [
         {
             "name": "syntax",
-            "task": "Identify syntax error and fix it.",
-            "code": "def add(a,b)\n return a+b",
-            "grader": lambda response: max(0.05, min(0.8 if any(k in response.lower() for k in [":", "syntax", "fix"]) else 0.1, 0.95)),
-            "difficulty": "easy"
+            "task": "Identify the syntax error in the function below and provide the corrected code.",
+            "code": "def add(a,b)\n    return a+b",
+            "grader": lambda r: max(0.05, min(
+                0.9 if any(k in r.lower() for k in ["def add(a,b):", "missing colon", "syntax error", ":"]) else
+                0.5 if "fix" in r.lower() else 0.1,
+                0.95)),
+            "difficulty": "easy",
         },
         {
             "name": "logic",
-            "task": "Fix logical error.",
-            "code": "def is_even(n): return n % 2 == 1",
-            "grader": lambda response: max(0.05, min(0.8 if any(k in response.lower() for k in ["even", "% 2", "== 0"]) else 0.1, 0.95)),
-            "difficulty": "medium"
+            "task": "Identify and fix the logical error in the function below.",
+            "code": "def is_even(n):\n    return n % 2 == 1",
+            "grader": lambda r: max(0.05, min(
+                0.9 if any(k in r.lower() for k in ["== 0", "n % 2 == 0", "should be 0"]) else
+                0.6 if any(k in r.lower() for k in ["even", "odd", "logic", "wrong"]) else 0.1,
+                0.95)),
+            "difficulty": "medium",
         },
         {
             "name": "performance",
-            "task": "Optimize performance.",
-            "code": "for i in range(len(arr)): print(arr[i])",
-            "grader": lambda response: max(0.05, min(0.8 if any(k in response.lower() for k in ["enumerate", "for x in", "comprehension"]) else 0.1, 0.95)),
-            "difficulty": "hard"
-        }
+            "task": "Optimize the following inefficient Python loop for better performance and readability.",
+            "code": "result = []\nfor i in range(len(arr)):\n    result.append(arr[i] * 2)",
+            "grader": lambda r: max(0.05, min(
+                0.9 if any(k in r.lower() for k in ["list comprehension", "[x * 2 for", "[item * 2"]) else
+                0.7 if any(k in r.lower() for k in ["comprehension", "enumerate", "map("]) else
+                0.4 if any(k in r.lower() for k in ["for x in arr", "for item in arr"]) else 0.1,
+                0.95)),
+            "difficulty": "hard",
+        },
     ]
 
     def __init__(self):
@@ -48,9 +58,14 @@ class CodeReviewEnvironment(Environment):
         return CodeReviewObservation(
             task=self.current["task"],
             code=self.current["code"],
+            task_name=self.current["name"],
             done=False,
-            reward=0.1,
-            metadata={"has_grader": True, "total_tasks": 3}
+            reward=0.0,
+            metadata={
+                "has_grader": True,
+                "total_tasks": 3,
+                "difficulty": self.current["difficulty"],
+            },
         )
 
     def step(self, action: CodeReviewAction):
@@ -61,9 +76,15 @@ class CodeReviewEnvironment(Environment):
         return CodeReviewObservation(
             task=self.current["task"],
             code="Completed" if done else self.current["code"],
+            task_name=self.current["name"],
             done=done,
             reward=reward,
-            metadata={"has_grader": True, "total_tasks": 3}
+            metadata={
+                "has_grader": True,
+                "total_tasks": 3,
+                "difficulty": self.current["difficulty"],
+                "step": self._state.step_count,
+            },
         )
 
     @property
